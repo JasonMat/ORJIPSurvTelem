@@ -17,15 +17,18 @@ bibliography: ORJIP.bib
 abstract: BLA. 
 ---
 
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
- library(MASS)
- library(fields)
  library(sm)
  library(KernSmooth)
+ library(MASS)
+
+```
 
 
+```{r basic functions, message=FALSE, warning=FALSE, cache=TRUE, include=FALSE, echo=FALSE, error=FALSE,results='hide'}
 # FUNCTION: Generates a random environmental layer in a square dxd arena using a total of x focal points
 environ<-function(d,foci,bw, mini, maxi)
 {
@@ -53,3 +56,5 @@ pH<-environ(d,100, 3, 4, 8)# soil pH, going from an acidic 4 to an alkaline 8
 image(M)
 
 ```
+
+# Appendix 
