@@ -41,6 +41,7 @@ library(inlabru)
 ```
 
 ```{r FUNCTIONS , message=FALSE, warning=FALSE, cache=TRUE, include=FALSE, echo=FALSE, error=FALSE,results='hide'}
+####################################    FUNCTIONS   ###############################################################
 # FUNCTION: Generates a random environmental layer in a square dxd arena using a total of x focal points
 environ<-function(d,foci,bw, mini, maxi)
 {
@@ -60,18 +61,28 @@ environ<-function(d,foci,bw, mini, maxi)
 ```
 
 # Simulation scenario
-A minimally-realistic scenario for developing the framework would include the following features
+A realistic scenario for developing the framework would include the following features
 
-- Coastline
-- Two colonies of different size on the coastline
-- An environmental covariate
-- A strength of attraction towards the colonies
+- A sufficiently large spatial extent, compared to the grid resolution used. 
+- A sufficiently complex coastline, to challenge the model with regard to land-shadowing effects.
+- Multiple colonies of different sizes arranged along the coastline.
+- Environmental covariates that may be continuous, or categorical. 
+- Individual-level movement rules, to enable the model to collect tracking data
+- A tendency to return to the colony periodically
+- A distinction in the strength of this homing tendency between provisioning adults and juveniles
+- Flexible and realistic user-defined options for the distribution of tagging effort (by colony and by individual)
+- Flexible and realistic user defined options for transect survey design
 
 
 
 
 
-```{r DataImport, message=FALSE, warning=FALSE,  cache=TRUE,echo=FALSE,error=FALSE, fig.height=4, fig.width=7,  fig.align='center',fig.cap="\\label{Landscape} The coastline definition and the associated marine covariate"}
+## Environmental covariates
+One continuous, one factor. 
+
+
+
+```{r DataImport, message=FALSE, warning=FALSE,  cache=TRUE,echo=FALSE,error=FALSE}
 
 #################################  DATA IMPORT ###########################################
 #Rasters
@@ -201,9 +212,46 @@ studyA2<-raster::crop(studyA2, extent(xmin,xmax,ymin,ymax))
 studyA3<-sp::spTransform(studyA3, crsDef)
 studyA3<-raster::crop(studyA3, extent(xmin,xmax,ymin,ymax))
 
-distCol.Plot<-habitat.Plot
 
-multiplot(bath.Plot,distCol.Plot, habitat.Plot, layout=matrix(c(1,2,3), 1,3))
 ```
+```{r EnvCovViz, message=FALSE, warning=FALSE,  cache=TRUE,echo=FALSE,error=FALSE, fig.height=3, fig.width=8,  fig.align='center',fig.cap="\\label{Landscape} The coastline definition and the associated marine covariate"}
+
+multiplot(bath.Plot,habitat.Plot, layout=matrix(c(1,2), 1,2))
+```
+
+## Derived covariates
+Distance-to-colony calculation
+
+```{r DerCovCal, message=FALSE, warning=FALSE,  cache=TRUE,echo=FALSE,error=FALSE}
+distCol.Plot<-bath.Plot
+
+```
+
+```{r DerCovViz, message=FALSE, warning=FALSE,  cache=TRUE,echo=FALSE,error=FALSE, fig.height=3, fig.width=8,  fig.align='center',fig.cap="\\label{Landscape} The coastline definition and the associated marine covariate"}
+
+multiplot(distCol.Plot,distCol.Plot,distCol.Plot, layout=matrix(c(1,2,3), 1,3))
+```
+
+## Individual-based simulation
+
+## Survey transects
+Import real transects and decide on different thinning regimes (i.e. truncate at ends, or introduce breaks between lines, how much to truncate, how long the breaks?)
+Perform data collection
+
+## Tagging effort
+How many individuals, for how much time, what is the split in effort between the two colonies?
+Perform data collection
+
+# Inference
+
+## Inference on telemetry data (SSF)
+
+## Inference on survey data (HSF)
+
+## Joint inference
+
+
+
+
 
 # Appendix 
