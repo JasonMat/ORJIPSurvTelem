@@ -1,6 +1,6 @@
 ---
 title: "ORJIP project: Modelling framework for the joint analysis of survey and telemetry data in seabirds"
-author: "Jason Matthiopoulos, Paul Blackwell"
+author: "Jason Matthiopoulos & Paul Blackwell"
 date: '`r Sys.Date()`'
 output:
   pdf_document:
@@ -21,14 +21,26 @@ abstract: BLA.
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
- library(sm)
- library(KernSmooth)
- library(MASS)
+library(sm)
+library(KernSmooth)
+library(MASS)
+library(sp) 
+library(raster)
+library(rgdal)
+library(rgeos)
+library(mapview)
+library(ggplot2)
+library(maps)
+library(maptools)
+library(mapdata)
+library(mapproj)
+library(tidyr)
+library(corrplot)
+library(inlabru)
 
 ```
 
-
-```{r basic functions, message=FALSE, warning=FALSE, cache=TRUE, include=FALSE, echo=FALSE, error=FALSE,results='hide'}
+```{r FUNCTIONS , message=FALSE, warning=FALSE, cache=TRUE, include=FALSE, echo=FALSE, error=FALSE,results='hide'}
 # FUNCTION: Generates a random environmental layer in a square dxd arena using a total of x focal points
 environ<-function(d,foci,bw, mini, maxi)
 {
@@ -47,14 +59,151 @@ environ<-function(d,foci,bw, mini, maxi)
 
 ```
 
-```{r DataImport, message=FALSE, warning=FALSE, cache=TRUE, include=FALSE, echo=FALSE, error=FALSE,results='hide'}
+# Simulation scenario
+A minimally-realistic scenario for developing the framework would include the following features
 
-d<-50 # Arena dimension
-set.seed(0)
-M<-environ(d, 100, 5, 10, 70)# Moisture content, going from 10-70%
-pH<-environ(d,100, 3, 4, 8)# soil pH, going from an acidic 4 to an alkaline 8
-image(M)
+- Coastline
+- Two colonies of different size on the coastline
+- An environmental covariate
+- A strength of attraction towards the colonies
 
+
+
+
+
+```{r DataImport, message=FALSE, warning=FALSE,  cache=TRUE,echo=FALSE,error=FALSE, fig.height=4, fig.width=7,  fig.align='center',fig.cap="\\label{Landscape} The coastline definition and the associated marine covariate"}
+
+#################################  DATA IMPORT ###########################################
+#Rasters
+bath<-raster::raster("Rasters/B3_EAEAC.tif") # Bathymetry data
+names(bath)<-"Depth"
+distCoast<-raster::raster("Rasters/Dist_Coast_EAEAC.tif") # Distance to coast data
+names(distCoast)<-"dCoast"
+habitats<-raster::raster("Rasters/rHabitats_EAEAC.tif") # Habitats
+names(habitats)<-"habitats"
+
+#Analysis area
+studyA<-rgdal::readOGR(
+  dsn= paste0(getwd(),"/Shapefiles/AnalysisArea2"),
+  layer= "MG_AnalysisArea_Coast_to_5km_EAEAC",
+  verbose=FALSE
+  )
+studyA<-rgeos::gSimplify(studyA,tol=1000)
+
+#Areas of interest
+studyA1<-rgdal::readOGR(
+  dsn= paste0(getwd(),"/Shapefiles/AreaofSearch"),
+  layer= "CS_AoS_Area1_20220909_EAEAC",
+  verbose=FALSE
+  )
+studyA2<-rgdal::readOGR(
+  dsn= paste0(getwd(),"/Shapefiles/AreaofSearch"),
+  layer= "CS_AoS_Area2_20220909_EAEAC",
+  verbose=FALSE
+)
+studyA3<-rgdal::readOGR(
+  dsn= paste0(getwd(),"/Shapefiles/AreaofSearch"),
+  layer= "CS_AoS_Area3_20220909_EAEAC",
+  verbose=FALSE
+)
+
+#Coastline
+coast<-rgdal::readOGR(
+  dsn= paste0(getwd(),"/Shapefiles/Coastline"),
+  layer= "BDS_EEA_Coastline_Poly_EAEAC",
+  verbose=FALSE
+)
+
+
+
+
+######################### SPATIAL DATA PRE-PROCESSING ###############################
+#crsDef<-bath@crs # Take projection reference from bathymetry data
+crsDef<-crs(bath)
+#crsDef<-CRS("+proj=utm +zone=31 +datum=WGS84 +units=m +no_defs +type=crs")
+xmin<- bbox(bath)[1,1]
+xmax<- bbox(bath)[1,2]
+ymin<- bbox(bath)[2,1]
+ymax<- bbox(bath)[2,2]
+
+aggr<-15 #Aggregation factor for covariates
+
+# 1. Exact Coastline
+coast<-sp::spTransform(coast, crsDef)
+coast<-raster::crop(coast, extent(xmin,xmax,ymin,ymax))
+
+
+# 2. Bathymetry
+bath<-raster::projectRaster(bath, crs=crsDef)
+bath<-raster::crop(bath, extent(xmin,xmax,ymin,ymax))
+num<-na.omit(bath@data@values)
+bath@data@values<-(bath@data@values-mean(num))/sqrt(var(num))
+bathag<-raster::aggregate(bath, fact=aggr)
+bathspdf<-as(bathag, "SpatialPixelsDataFrame")
+
+
+f.bath <- function(x, y) {
+  # turn coordinates into SpatialPoints object:
+  # with the appropriate coordinate reference system (CRS)
+  spp <- SpatialPoints(data.frame(x = x, y = y), proj4string = crsDef)
+  proj4string(spp) <- crsDef
+  # Extract elevation values at spp coords, from our bathspdf SpatialGridDataFrame
+  v <- over(spp, bathspdf)
+  if (any(is.na(v$Depth))) {
+    v$Depth <- inlabru:::bru_fill_missing(bathspdf, spp, v$Depth)
+  }
+  return(v$Depth)
+}
+
+
+bath.Plot<-ggplot()+
+  gg(bathspdf)+ 
+  gg(coast)+
+  ggtitle("Bathymetry")+
+  theme(axis.text.y =element_blank(), axis.text.x = element_blank())+
+  gg(studyA1)+
+  gg(studyA2)+
+  gg(studyA3)
+
+
+# 3. Habitats
+habitats<-raster::projectRaster(habitats, crs=crsDef)
+habitats<-raster::crop(habitats, extent(xmin,xmax,ymin,ymax))
+habitatsag<-raster::aggregate(habitats, fact=aggr)
+habitats<-as(habitatsag, "SpatialPixelsDataFrame")
+habitats$habitats<-factor(as.character(round(habitats$habitats)))
+habitats$habitats[habitats$habitats==2]<-0
+habitats$habitats<-factor(as.character(habitats$habitats))
+levels(habitats$habitats)<-c("Undetermined","Rock","Coarse sed","Mixed sed","Sand","Mud")
+
+f.habitat <- function(x, y) {
+  # turn coordinates into SpatialPoints object:
+  # with the appropriate coordinate reference system (CRS)
+  spp <- SpatialPoints(data.frame(x = x, y = y), proj4string = crsDef)
+  proj4string(spp) <- crsDef
+  v <- over(spp, habitats)
+  if (any(is.na(v$hab))) {
+    v$hab <- inlabru:::bru_fill_missing(habitats, spp, v$hab)
+  }
+  return(v$hab)
+}
+
+
+habitat.Plot<-ggplot()+gg(habitats)+ gg(coast)+ggtitle("Habitats")+theme(axis.text.y = element_blank(), axis.text.x = element_blank())+  gg(studyA1)+
+  gg(studyA2)+
+  gg(studyA3)
+
+# 4. Study Areas
+studyA1<-sp::spTransform(studyA1, crsDef)
+studyA1<-raster::crop(studyA1, extent(xmin,xmax,ymin,ymax))
+studyA2<-sp::spTransform(studyA2, crsDef)
+studyA2<-raster::crop(studyA2, extent(xmin,xmax,ymin,ymax))
+studyA3<-sp::spTransform(studyA3, crsDef)
+studyA3<-raster::crop(studyA3, extent(xmin,xmax,ymin,ymax))
+
+distCol.Plot<-habitat.Plot
+
+multiplot(bath.Plot,distCol.Plot, habitat.Plot, layout=matrix(c(1,2,3), 1,3))
 ```
 
 # Appendix 

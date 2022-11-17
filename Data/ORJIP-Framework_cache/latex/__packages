@@ -1,3 +1,16 @@
 sm
 KernSmooth
 MASS
+sp
+raster
+rgdal
+rgeos
+mapview
+ggplot2
+maps
+maptools
+mapdata
+mapproj
+tidyr
+corrplot
+inlabru
