@@ -101,22 +101,12 @@ studyA<-rgdal::readOGR(
   )
 studyA<-rgeos::gSimplify(studyA,tol=1000)
 
-#Areas of interest
+#Area of development
 studyA1<-rgdal::readOGR(
   dsn= paste0(getwd(),"/Shapefiles/AreaofSearch"),
   layer= "CS_AoS_Area1_20220909_EAEAC",
   verbose=FALSE
   )
-studyA2<-rgdal::readOGR(
-  dsn= paste0(getwd(),"/Shapefiles/AreaofSearch"),
-  layer= "CS_AoS_Area2_20220909_EAEAC",
-  verbose=FALSE
-)
-studyA3<-rgdal::readOGR(
-  dsn= paste0(getwd(),"/Shapefiles/AreaofSearch"),
-  layer= "CS_AoS_Area3_20220909_EAEAC",
-  verbose=FALSE
-)
 
 #Coastline
 coast<-rgdal::readOGR(
@@ -126,9 +116,7 @@ coast<-rgdal::readOGR(
 )
 
 
-
-
-######################### SPATIAL DATA PRE-PROCESSING ###############################
+######################### COVARIATE PRE-PROCESSING ###############################
 #crsDef<-bath@crs # Take projection reference from bathymetry data
 crsDef<-crs(bath)
 #crsDef<-CRS("+proj=utm +zone=31 +datum=WGS84 +units=m +no_defs +type=crs")
@@ -172,9 +160,7 @@ bath.Plot<-ggplot()+
   gg(coast)+
   ggtitle("Bathymetry")+
   theme(axis.text.y =element_blank(), axis.text.x = element_blank())+
-  gg(studyA1)+
-  gg(studyA2)+
-  gg(studyA3)
+  gg(studyA1)
 
 
 # 3. Habitats
@@ -200,36 +186,61 @@ f.habitat <- function(x, y) {
 }
 
 
-habitat.Plot<-ggplot()+gg(habitats)+ gg(coast)+ggtitle("Habitats")+theme(axis.text.y = element_blank(), axis.text.x = element_blank())+  gg(studyA1)+
-  gg(studyA2)+
-  gg(studyA3)
+habitat.Plot<-ggplot()+gg(habitats)+ gg(coast)+ggtitle("Habitats")+theme(axis.text.y = element_blank(), axis.text.x = element_blank())+  gg(studyA1)
 
-# 4. Study Areas
+# 4. Study Area
 studyA1<-sp::spTransform(studyA1, crsDef)
 studyA1<-raster::crop(studyA1, extent(xmin,xmax,ymin,ymax))
-studyA2<-sp::spTransform(studyA2, crsDef)
-studyA2<-raster::crop(studyA2, extent(xmin,xmax,ymin,ymax))
-studyA3<-sp::spTransform(studyA3, crsDef)
-studyA3<-raster::crop(studyA3, extent(xmin,xmax,ymin,ymax))
-
-
 ```
-```{r EnvCovViz, message=FALSE, warning=FALSE,  cache=TRUE,echo=FALSE,error=FALSE, fig.height=3, fig.width=8,  fig.align='center',fig.cap="\\label{Landscape} The coastline definition and the associated marine covariate"}
+```{r EnvCovVisualisation, message=FALSE, warning=FALSE,  cache=TRUE,echo=FALSE,error=FALSE, fig.height=3, fig.width=8,  fig.align='center',fig.cap="\\label{Landscape} The coastline definition and the associated marine covariate"}
+############### COVARIATE PLOTTING ############################
 
 multiplot(bath.Plot,habitat.Plot, layout=matrix(c(1,2), 1,2))
 ```
 
+
+
+
 ## Derived covariates
 Distance-to-colony calculation
 
-```{r DerCovCal, message=FALSE, warning=FALSE,  cache=TRUE,echo=FALSE,error=FALSE}
-distCol.Plot<-bath.Plot
+```{r CovMatrices, message=FALSE, warning=FALSE,  cache=TRUE,echo=FALSE,error=FALSE}
 
-```
+#m.bath<-as.matrix(bath)
+#image(m.bath)
+roCol<-c(140,730)
+coCol<-c(690,740)
+pop<-c(2000,1000)
 
-```{r DerCovViz, message=FALSE, warning=FALSE,  cache=TRUE,echo=FALSE,error=FALSE, fig.height=3, fig.width=8,  fig.align='center',fig.cap="\\label{Landscape} The coastline definition and the associated marine covariate"}
+dis<-list()
 
-multiplot(distCol.Plot,distCol.Plot,distCol.Plot, layout=matrix(c(1,2,3), 1,3))
+for( i in 1:length(roCol))
+{
+  land<-bath*0+1
+  land@data@values[is.na(land@data@values)]<-0
+  land[roCol[i],coCol[i]]<-2
+  d1<-gridDistance(land,origin=2, omit=0) 
+  dis<-append(dis,d1)
+  dinv<-pop[i]/(1+d1)^0.1
+  if(i==1)
+  {dCol<-dinv
+  } else {
+    dCol<-dCol+dinv
+  }
+}
+num<-na.omit(dCol@data@values)
+dCol@data@values<-(dCol@data@values-mean(num))/sqrt(var(num))
+dColag<-raster::aggregate(dCol, fact=aggr)
+dColspdf<-as(dColag, "SpatialPixelsDataFrame")
+
+ggplot()+
+  gg(dColspdf)+ 
+  gg(coast)+
+  ggtitle("Proximity to colonies")+
+  theme(axis.text.y =element_blank(), axis.text.x = element_blank())+
+  gg(studyA1)
+
+
 ```
 
 ## Individual-based simulation
