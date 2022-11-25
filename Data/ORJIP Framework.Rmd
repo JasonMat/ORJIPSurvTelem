@@ -42,19 +42,89 @@ library(inlabru)
 
 ```{r FUNCTIONS , message=FALSE, warning=FALSE, cache=TRUE, include=FALSE, echo=FALSE, error=FALSE,results='hide'}
 ####################################    FUNCTIONS   ###############################################################
-# FUNCTION: Generates a random environmental layer in a square dxd arena using a total of x focal points
-environ<-function(d,foci,bw, mini, maxi)
+
+#### Function fHS ####
+# Calculates the step selection function for a provisioning bird, responding to 
+# a single, continuous covariate and distance from colony
+# Arguments:
+# x,y: The candidate coordinates
+# cov: The covariate layer
+# dis: The distance layer
+# t: The proportion of total trip time used
+
+fHS<-function(x,y,cov,di,tp=NULL, mode="Return")
+{  
+  a1<- -2 # Covariate coefficient
+  a2<-2.5 # Distance from colony coef
+  a3<--a2*2 # Interaction with time coefficient
+  tmid<- 1/2 # Half-saturation parameter for homing behaviour
+  hs<-exp(a1*cov[cbind(x,y)]+a2*di[cbind(x,y)]+a3*di[cbind(x,y)]*tp^10/(tp^10+tmid^10))
+  if(sum(is.na(hs))>0) 
+    {
+    print(hs)
+    print(a1*cov[cbind(x,y)]+a2*di[cbind(x,y)]+a3*di[cbind(x,y)]*tp^10/(tp^10+tmid^10))
+    print(cov[cbind(x,y)])
+    print(di[cbind(x,y)])
+  }
+  pt<-sample(1:length(x),1,prob=hs)#which.max(hs)
+  if(length(pt)==0) {
+    print(paste(x," ",y))
+    print(di[cbind(x,y)])
+    print(cov[cbind(x,y)])
+    print(hs)
+  }
+  return(pt)
+}
+
+#### Function fIBM ####
+# Calculates Step Selection movement simulation according to model type
+# Arguments:
+# x0,y0, starting location
+# tmax: Trip duration
+# cov: Covariate layer
+# di: Distance to colony layer
+
+fIBM<-function(x0,y0,tmax,cov, di)
 {
-  rng<-(d+1):(2*d)
-  # Places seeds in arena
-  cox<-cbind(runif(3*foci, min=1, max=3*d), runif(3*foci, min=1, max=3*d))
-  # Smooths seeds to create spatial autocorrelation
-  smooth<-bkde2D(cox, bandwidth = c(bw,bw), gridsize=c(3*d,3*d),range.x=list(c(1,3*d),c(1,3*d)))
-  layer<-smooth$fhat
-  minl<-min(layer)
-  maxl<-max(layer)
-  layer<-((layer-minl)/(maxl-minl))*(maxi-mini)+mini
-  return(layer[rng,rng])
+  
+  #Data structures
+  path<-matrix(c(x0,y0,1), nrow=tmax, ncol=3, byrow=T)
+  
+  #Parameters
+  rmax<-dim(di)[1]
+  cmax<-dim(di)[2]
+  pp<-10 # Number of candidate points for SSF
+  r0<-20 # Mean Radius for SSF
+
+
+  #Simulation
+  for(t in 2:tmax)
+  {
+    xx<-c()
+    yy<-c()
+    while(length(xx)<2*pp)
+    {    
+      rs<-rexp(pp,1/r0) # Radii
+      fs<-runif(pp,0,2*pi) # Angles
+      xs<-round(rs*cos(fs))
+      ys<-round(rs*sin(fs))
+      x1<-pmax(0,pmin(rmax,path[t-1,1]+xs))
+      y1<-pmax(0,pmin(cmax,path[t-1,2]+ys))
+      keep<-((is.na(cov[cbind(x1,y1)])==0)*(is.na(di[cbind(x1,y1)])==0))==1
+      xx<-c(xx,x1[keep])
+      yy<-c(yy,y1[keep])
+    }
+    
+    
+    pt<-fHS(xx,yy,cov,di,tp=t/tmax, mode="Return")
+    
+    path[t,1]<-xx[pt]
+    path[t,2]<-yy[pt]
+    path[t,3]<-t
+  }
+  
+
+  return(path)
 }
 
 
@@ -125,7 +195,7 @@ xmax<- bbox(bath)[1,2]
 ymin<- bbox(bath)[2,1]
 ymax<- bbox(bath)[2,2]
 
-aggr<-15 #Aggregation factor for covariates
+aggr<-5 #Aggregation factor for covariates
 
 # 1. Exact Coastline
 coast<-sp::spTransform(coast, crsDef)
@@ -137,6 +207,7 @@ bath<-raster::projectRaster(bath, crs=crsDef)
 bath<-raster::crop(bath, extent(xmin,xmax,ymin,ymax))
 num<-na.omit(bath@data@values)
 bath@data@values<-(bath@data@values-mean(num))/sqrt(var(num))
+#bath@data@values[is.na(bath@data@values)]<-2*max(na.omit(bath@data@values))
 bathag<-raster::aggregate(bath, fact=aggr)
 bathspdf<-as(bathag, "SpatialPixelsDataFrame")
 
@@ -206,11 +277,10 @@ Distance-to-colony calculation
 
 ```{r CovMatrices, message=FALSE, warning=FALSE,  cache=TRUE,echo=FALSE,error=FALSE}
 
-#m.bath<-as.matrix(bath)
-#image(m.bath)
-roCol<-c(140,730)
-coCol<-c(690,740)
+roCol<-c(140,750)
+coCol<-c(690,750)
 pop<-c(2000,1000)
+nC<-length(roCol)
 
 dis<-list()
 
@@ -220,16 +290,18 @@ for( i in 1:length(roCol))
   land@data@values[is.na(land@data@values)]<-0
   land[roCol[i],coCol[i]]<-2
   d1<-gridDistance(land,origin=2, omit=0) 
+  #d1@data@values[is.na(d1@data@values)]<-2*max(na.omit(d1@data@values))
   dis<-append(dis,d1)
-  dinv<-pop[i]/(1+d1)^0.1
+  dinv<-d1 #pop[i]/(1+d1)^0.1
   if(i==1)
   {dCol<-dinv
   } else {
     dCol<-dCol+dinv
   }
 }
-num<-na.omit(dCol@data@values)
-dCol@data@values<-(dCol@data@values-mean(num))/sqrt(var(num))
+# num<-na.omit(dCol@data@values)
+# dCol@data@values<-(dCol@data@values-mean(num))/sqrt(var(num))
+dCol@data@values<-log(dCol@data@values+1)
 dColag<-raster::aggregate(dCol, fact=aggr)
 dColspdf<-as(dColag, "SpatialPixelsDataFrame")
 
@@ -243,15 +315,83 @@ ggplot()+
 
 ```
 
-## Individual-based simulation
 
+
+
+
+## Individual-based simulation
+```{r IBM, message=FALSE, warning=FALSE,  cache=TRUE,echo=FALSE,error=FALSE}
+
+n<-200
+allData<-vector("list",n)
+allCols<-sample(1:nC, size=n, replace=TRUE, prob=pop/sum(pop))
+Tmax<-round(rgamma(n,100,0.05))
+usage<-bath*0
+
+
+for(i in 1:n)
+{
+  colony<-allCols[i]
+  x0<-roCol[colony]
+  y0<-coCol[colony]
+  allData[[i]]<-fIBM(x0,y0, tmax=Tmax[i], cov=bath, di=log(dis[[colony]]+1)) 
+  # HERE: Project positions into meter coordinates
+}
+
+
+for(i in 1:n)
+{
+  usage[allData[[i]][,1:2]]=usage[allData[[i]][,1:2]]+1
+}
+usageag<-raster::aggregate((usage), fact=15)
+usagespdf<-as(usageag, "SpatialPixelsDataFrame")
+
+ggplot()+
+  gg(usagespdf)+ 
+  gg(coast)+
+  ggtitle("Usage")+
+  gg(studyA1)
+```
 ## Survey transects
 Import real transects and decide on different thinning regimes (i.e. truncate at ends, or introduce breaks between lines, how much to truncate, how long the breaks?)
 Perform data collection
 
+```{r Surveys, message=FALSE, warning=FALSE, cache=TRUE, error=FALSE,results='hide'}
+############### TRANSECTS ##################################################
+
+
+
+ESAS2016<-read.csv("ESAS 2016_MG.csv")
+
+thin<-1
+survey<-data.frame("Date"=ESAS2016$Date, "Lat"=ESAS2016$Latitude, "Lon"=ESAS2016$Longitude)[seq(1,nrow(ESAS2016),thin),]
+
+
+xy <- cbind(x=survey$Lon, y = survey$Lat)
+xy<-cbind(as.numeric(xy[,1]),as.numeric(xy[,2]))
+xyprojTR<-project(xy, as.character(crsDef))
+kp<-((xyprojTR[,1]<xmax)*(xyprojTR[,1]>xmin)*(xyprojTR[,2]<ymax)*(xyprojTR[,2]>ymin))==1
+xyprojTR<-xyprojTR[kp,]
+covsTR<-data.frame("Date"=survey$Date[kp])
+transects <- SpatialPointsDataFrame(coords = xyprojTR, data=covsTR,
+                                    proj4string = crsDef)
+
+ggplot()+
+  gg(usagespdf)+ 
+  gg(coast)+
+  ggtitle("Usage")+
+  gg(studyA1)+
+  gg(transects)
+
+```
+
+
 ## Tagging effort
 How many individuals, for how much time, what is the split in effort between the two colonies?
 Perform data collection
+
+
+
 
 # Inference
 
