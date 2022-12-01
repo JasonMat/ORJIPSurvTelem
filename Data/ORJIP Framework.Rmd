@@ -54,7 +54,7 @@ library(inlabru)
 
 fHS<-function(x,y,cov,di,tp=NULL, mode="Return")
 {  
-  a1<- -2 # Covariate coefficient
+  a1<- -1 # Covariate coefficient
   a2<-2.5 # Distance from colony coef
   a3<--a2*2 # Interaction with time coefficient
   tmid<- 1/2 # Half-saturation parameter for homing behaviour
@@ -279,7 +279,7 @@ Distance-to-colony calculation
 
 roCol<-c(140,750)
 coCol<-c(690,750)
-pop<-c(2000,1000)
+pop<-c(1000,2000)
 nC<-length(roCol)
 
 dis<-list()
@@ -322,10 +322,10 @@ ggplot()+
 ## Individual-based simulation
 ```{r IBM, message=FALSE, warning=FALSE,  cache=TRUE,echo=FALSE,error=FALSE}
 
-n<-200
+n<-50
 allData<-vector("list",n)
 allCols<-sample(1:nC, size=n, replace=TRUE, prob=pop/sum(pop))
-Tmax<-round(rgamma(n,100,0.05))
+Tmax<-round(rgamma(n,100,0.1))
 usage<-bath*0
 
 
@@ -335,7 +335,8 @@ for(i in 1:n)
   x0<-roCol[colony]
   y0<-coCol[colony]
   allData[[i]]<-fIBM(x0,y0, tmax=Tmax[i], cov=bath, di=log(dis[[colony]]+1)) 
-  # HERE: Project positions into meter coordinates
+  allData[[i]]<-cbind(allData[[i]], xmin+allData[[i]][,2]*(xmax-xmin)/(dim(usage)[2]))
+  allData[[i]]<-cbind(allData[[i]], ymin+(dim(usage)[1]-allData[[i]][,1])*(ymax-ymin)/(dim(usage)[1]))
 }
 
 
@@ -343,28 +344,32 @@ for(i in 1:n)
 {
   usage[allData[[i]][,1:2]]=usage[allData[[i]][,1:2]]+1
 }
-usageag<-raster::aggregate((usage), fact=15)
-usagespdf<-as(usageag, "SpatialPixelsDataFrame")
+usageag<-raster::aggregate((usage), fact=10)
+logusageag<-log(usageag+0.01)
+logusagespdf<-as(logusageag, "SpatialPixelsDataFrame")
 
 ggplot()+
-  gg(usagespdf)+ 
+  gg(logusagespdf)+ 
   gg(coast)+
   ggtitle("Usage")+
   gg(studyA1)
 ```
+
 ## Survey transects
+
 Import real transects and decide on different thinning regimes (i.e. truncate at ends, or introduce breaks between lines, how much to truncate, how long the breaks?)
 Perform data collection
 
-```{r Surveys, message=FALSE, warning=FALSE, cache=TRUE, error=FALSE,results='hide'}
+```{r Surveys, message=FALSE, warning=FALSE, cache=TRUE,echo=FALSE, error=FALSE,results='hide'}
 ############### TRANSECTS ##################################################
 
 
 
-ESAS2016<-read.csv("ESAS 2016_MG.csv")
-
+ESAS<-read.csv("ESAS 2015_MG.csv")
+ESAS<-ESAS[is.na(ESAS$Latitude)==0,]
 thin<-1
-survey<-data.frame("Date"=ESAS2016$Date, "Lat"=ESAS2016$Latitude, "Lon"=ESAS2016$Longitude)[seq(1,nrow(ESAS2016),thin),]
+time<-
+survey<-data.frame("Time"=ESAS$Date, "Lat"=ESAS$Latitude, "Lon"=ESAS$Longitude)[seq(1,nrow(ESAS),thin),]
 
 
 xy <- cbind(x=survey$Lon, y = survey$Lat)
@@ -372,16 +377,20 @@ xy<-cbind(as.numeric(xy[,1]),as.numeric(xy[,2]))
 xyprojTR<-project(xy, as.character(crsDef))
 kp<-((xyprojTR[,1]<xmax)*(xyprojTR[,1]>xmin)*(xyprojTR[,2]<ymax)*(xyprojTR[,2]>ymin))==1
 xyprojTR<-xyprojTR[kp,]
-covsTR<-data.frame("Date"=survey$Date[kp])
+covsTR<-data.frame("Date"=survey$Time[kp])
 transects <- SpatialPointsDataFrame(coords = xyprojTR, data=covsTR,
                                     proj4string = crsDef)
 
+paths<-SpatialPointsDataFrame(coords = data.frame(allData[[1]][,4],allData[[1]][,5]), data=data.frame(allData[[1]][,3]),
+                                    proj4string = crsDef)
+
 ggplot()+
-  gg(usagespdf)+ 
+  gg(logusagespdf)+ 
   gg(coast)+
   ggtitle("Usage")+
   gg(studyA1)+
-  gg(transects)
+  gg(paths, size = 0.01, alpha=.5, col="white")+
+  gg(transects, size = 0.01, alpha=1, col="yellow")
 
 ```
 
