@@ -387,10 +387,9 @@ paths<-SpatialPointsDataFrame(coords = data.frame(allData[[1]][,4],allData[[1]][
 ggplot()+
   gg(logusagespdf)+ 
   gg(coast)+
-  ggtitle("Usage")+
+  ggtitle("Telemetry")+
   gg(studyA1)+
-  gg(paths, size = 0.01, alpha=.5, col="white")+
-  gg(transects, size = 0.01, alpha=1, col="yellow")
+  gg(paths, size = 0.01, alpha=.5, col="white")
 
 ```
 For a faithful simulation of the true process, we would need to simulate thousands of animal trajectories for several thousands of time instants each, and then require that each of the points detected by the transects is within a spatial **and** temporal distance threshold of a particular survey point. This is quite wasteful computationally, so to create our detections dataset, we simply select a subset of the true animal locations that were in the spatial viscinity of a transect location, irrespective of the timing. 
@@ -431,7 +430,7 @@ dets<-SpatialPointsDataFrame(coords = data.frame(surveyDat$lon[pres], surveyDat$
 ggplot()+
   gg(logusagespdf)+ 
   gg(coast)+
-  ggtitle("Usage")+
+  ggtitle("Survey")+
   gg(studyA1)+
   gg(transects, size = 0.01, alpha=1, col="yellow")+
   gg(dets, size = 1, alpha=1, col="red")
