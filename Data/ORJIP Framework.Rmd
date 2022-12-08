@@ -84,11 +84,11 @@ fHS<-function(x,y,cov,di,tp=NULL, mode="Return")
 # cov: Covariate layer
 # di: Distance to colony layer
 
-fIBM<-function(x0,y0,tmax,cov, di)
+fIBM<-function(x0,y0,tmin,tmax,cov, di)
 {
   
   #Data structures
-  path<-matrix(c(x0,y0,1), nrow=tmax, ncol=3, byrow=T)
+  path<-matrix(c(x0,y0,tmin+1), nrow=tmax, ncol=3, byrow=T)
   
   #Parameters
   rmax<-dim(di)[1]
@@ -120,7 +120,7 @@ fIBM<-function(x0,y0,tmax,cov, di)
     
     path[t,1]<-xx[pt]
     path[t,2]<-yy[pt]
-    path[t,3]<-t
+    path[t,3]<-tmin+t
   }
   
 
@@ -322,10 +322,11 @@ ggplot()+
 ## Individual-based simulation
 ```{r IBM, message=FALSE, warning=FALSE,  cache=TRUE,echo=FALSE,error=FALSE}
 
-n<-50
+n<-100
 allData<-vector("list",n)
 allCols<-sample(1:nC, size=n, replace=TRUE, prob=pop/sum(pop))
-Tmax<-round(rgamma(n,100,0.1))
+Tmin<-sample(c(1000,4000,8000),n, replace=TRUE) # Tagging times
+Tmax<-round(rgamma(n,100,0.1)) # Duration of tagging (assumed 1 trip)
 usage<-bath*0
 
 
@@ -334,7 +335,7 @@ for(i in 1:n)
   colony<-allCols[i]
   x0<-roCol[colony]
   y0<-coCol[colony]
-  allData[[i]]<-fIBM(x0,y0, tmax=Tmax[i], cov=bath, di=log(dis[[colony]]+1)) 
+  allData[[i]]<-fIBM(x0,y0, tmin=Tmin[i],tmax=Tmax[i], cov=bath, di=log(dis[[colony]]+1)) 
   allData[[i]]<-cbind(allData[[i]], xmin+allData[[i]][,2]*(xmax-xmin)/(dim(usage)[2]))
   allData[[i]]<-cbind(allData[[i]], ymin+(dim(usage)[1]-allData[[i]][,1])*(ymax-ymin)/(dim(usage)[1]))
 }
@@ -377,12 +378,11 @@ xy<-cbind(as.numeric(xy[,1]),as.numeric(xy[,2]))
 xyprojTR<-project(xy, as.character(crsDef))
 kp<-((xyprojTR[,1]<xmax)*(xyprojTR[,1]>xmin)*(xyprojTR[,2]<ymax)*(xyprojTR[,2]>ymin))==1
 xyprojTR<-xyprojTR[kp,]
-covsTR<-data.frame("Date"=survey$Time[kp])
+covsTR<-data.frame("Date"=1:nrow(xyprojTR))#survey$Time[kp])
 transects <- SpatialPointsDataFrame(coords = xyprojTR, data=covsTR,
                                     proj4string = crsDef)
 
-paths<-SpatialPointsDataFrame(coords = data.frame(allData[[1]][,4],allData[[1]][,5]), data=data.frame(allData[[1]][,3]),
-                                    proj4string = crsDef)
+paths<-SpatialPointsDataFrame(coords = data.frame(allData[[1]][,4],allData[[1]][,5]), data=data.frame(allData[[1]][,3]),proj4string = crsDef)
 
 ggplot()+
   gg(logusagespdf)+ 
@@ -393,7 +393,50 @@ ggplot()+
   gg(transects, size = 0.01, alpha=1, col="yellow")
 
 ```
+For a faithful simulation of the true process, we would need to simulate thousands of animal trajectories for several thousands of time instants each, and then require that each of the points detected by the transects is within a spatial **and** temporal distance threshold of a particular survey point. This is quite wasteful computationally, so to create our detections dataset, we simply select a subset of the true animal locations that were in the spatial viscinity of a transect location, irrespective of the timing. 
 
+```{r SurveyData, message=FALSE, warning=FALSE, cache=TRUE,echo=FALSE, error=FALSE,results='hide'}
+############### TRANSECT DATA COLLECTION #######################################
+# Data frame with all transect locations and times
+trans<-data.frame("lon"=xyprojTR[,1],"lat"=xyprojTR[,2], "time"=covsTR$Date, 
+                  "Row"=dim(usage)[1]-round((xyprojTR[,2]-ymin)/(ymax-ymin)*dim(usage)[1]),
+                  "Col"=round((xyprojTR[,1]-xmin)/(xmax-xmin)*dim(usage)[2]))
+# Data frame with all animal ids, locations and times 
+useTru<-data.frame("id"=rep(1,nrow(allData[[1]])),"Row"=allData[[1]][,1],"Col"=allData[[1]][,2],"lon"=allData[[1]][,4],"lat"=allData[[1]][,5], "time"=allData[[1]][,3])
+for(i in 1:n)
+{
+  useTru<-rbind(useTru, data.frame("id"=rep(1,nrow(allData[[i]])),"Row"=allData[[i]][,1],"Col"=allData[[i]][,2],"lon"=allData[[i]][,4],"lat"=allData[[i]][,5], "time"=allData[[i]][,3]))
+}
+# Extraction of animal detections
+surveyDat<-cbind(trans, "Count"=rep(0,nrow(trans)))
+p<-0.05 # Probability of detecting a proximate point
+for(i in 1:nrow(trans))
+{
+  # Distances of animal locations from survey point
+  dist<-sqrt((trans[i,]$lat-useTru$lat)^2+(trans[i,]$lon-useTru$lon)^2)
+  chunk<-useTru[dist<500,]
+  surveyDat$Count[i]<-rbinom(1, nrow(chunk), p)
+  
+  
+}
+surveyDat<-cbind(surveyDat, 
+                 "Depth"=bath[cbind(surveyDat$Row, surveyDat$Col)],
+                 "D1"=dis[[1]][cbind(surveyDat$Row, surveyDat$Col)],
+                 "D2"=dis[[2]][cbind(surveyDat$Row, surveyDat$Col)]
+                 )
+
+pres<-(surveyDat$Count>0)
+dets<-SpatialPointsDataFrame(coords = data.frame(surveyDat$lon[pres], surveyDat$lat[pres]), data=data.frame(surveyDat$Depth[pres]),proj4string = crsDef)
+
+ggplot()+
+  gg(logusagespdf)+ 
+  gg(coast)+
+  ggtitle("Usage")+
+  gg(studyA1)+
+  gg(transects, size = 0.01, alpha=1, col="yellow")+
+  gg(dets, size = 1, alpha=1, col="red")
+
+```
 
 ## Tagging effort
 How many individuals, for how much time, what is the split in effort between the two colonies?
@@ -407,7 +450,20 @@ Perform data collection
 ## Inference on telemetry data (SSF)
 
 ## Inference on survey data (HSF)
+The first attempt is to approach the survey inference by a standard Poisson GLM. 
+```{r glm, message=FALSE, warning=FALSE, cache=TRUE,echo=FALSE, error=FALSE,results='hide'}
+############### TRANSECT GLM ANALYSIS #######################################
+model<-glm(Count~Depth+D1+D2, data=surveyDat, family=poisson)
 
+predDat<-data.frame("Depth"=bath@data@values, "D1"=dis[[1]]@data@values, "D2"=dis[[2]]@data@values)
+ids<-is.na(bath@data@values)==FALSE
+preds<-predict(model, newdata=predDat[ids,],type=c("response"))
+glm.preds<-bath
+glm.preds@data@values[ids]<-preds
+plot(glm.preds)
+
+
+```
 ## Joint inference
 
 
